@@ -1,0 +1,18 @@
+[package]
+name = "supertop"
+version = "0.1.0"
+edition = "2021"
+description = "A gorgeous terminal system monitor: CPU, memory, disk, network, temperature and spinning fans"
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.29"
+ratatui = "0.30"
+sysinfo = "0.39"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
