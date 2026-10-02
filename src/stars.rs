@@ -41,6 +41,10 @@ pub fn render(buf: &mut Buffer, area: Rect, theme: &Theme, t: f64) {
                 _ => (".", theme.overlay0),
             };
             let strength = 0.08 + twinkle * if kind <= 9 { 0.55 } else { 0.42 };
+            // Snap brightness to a few RGB units per step. Too fine to see, but
+            // stars no longer change color (and get rewritten) on every frame,
+            // which cuts terminal output a lot.
+            let strength = (strength * 64.0).round() / 64.0;
             cell.set_symbol(glyph).set_fg(mix(theme.base, tint, strength));
         }
     }
