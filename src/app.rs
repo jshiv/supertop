@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -60,7 +61,10 @@ pub struct History {
 
 pub struct App {
     pub info: StaticInfo,
-    pub snap: Option<Snapshot>,
+    /// Shared so the renderer can hold it without deep-copying every process.
+    pub snap: Option<Rc<Snapshot>>,
+    /// Indices into `snap.procs` after filtering and sorting.
+    proc_order: Vec<usize>,
     pub hist: History,
     pub theme_idx: usize,
     pub window_idx: usize,
@@ -88,6 +92,7 @@ impl App {
         Self {
             info,
             snap: None,
+            proc_order: Vec::new(),
             hist: History::default(),
             theme_idx: 0,
             window_idx: 1,
@@ -170,7 +175,8 @@ impl App {
             self.fan_angles = (0..s.fans.len()).map(|i| i as f64 * 0.7).collect();
             self.fan_speeds = vec![0.0; s.fans.len()];
         }
-        self.snap = Some(s);
+        self.snap = Some(Rc::new(s));
+        self.sort_procs();
     }
 
     /// Advances fan rotation. Real fans spin at 20-100 rev/s, far beyond what a
@@ -193,22 +199,33 @@ impl App {
     /// Processes after filtering and sorting, as displayed.
     pub fn visible_procs(&self) -> Vec<&ProcInfo> {
         let Some(s) = &self.snap else { return Vec::new() };
+        self.proc_order.iter().map(|&i| &s.procs[i]).collect()
+    }
+
+    /// Recomputes the display order. Called when the snapshot, sort or filter
+    /// changes rather than on every frame.
+    fn sort_procs(&mut self) {
+        self.proc_order.clear();
+        let Some(s) = &self.snap else { return };
         let needle = self.filter.to_lowercase();
-        let mut v: Vec<&ProcInfo> = s
-            .procs
-            .iter()
-            .filter(|p| needle.is_empty() || p.name.to_lowercase().contains(&needle) || p.pid.to_string() == needle)
-            .collect();
+        let procs = &s.procs;
+        self.proc_order.extend((0..procs.len()).filter(|&i| {
+            let p = &procs[i];
+            needle.is_empty() || p.name.to_lowercase().contains(&needle) || p.pid.to_string() == needle
+        }));
+        let v = &mut self.proc_order;
         match self.sort {
-            SortKey::Cpu => v.sort_by(|a, b| a.cpu.total_cmp(&b.cpu).then(a.mem.cmp(&b.mem))),
-            SortKey::Mem => v.sort_by_key(|p| p.mem),
-            SortKey::Pid => v.sort_by_key(|p| p.pid),
-            SortKey::Name => v.sort_by_key(|p| p.name.to_lowercase()),
+            SortKey::Cpu => v.sort_by(|&a, &b| {
+                let (a, b) = (&procs[a], &procs[b]);
+                a.cpu.total_cmp(&b.cpu).then(a.mem.cmp(&b.mem))
+            }),
+            SortKey::Mem => v.sort_by_key(|&i| procs[i].mem),
+            SortKey::Pid => v.sort_by_key(|&i| procs[i].pid),
+            SortKey::Name => v.sort_by_cached_key(|&i| procs[i].name.to_lowercase()),
         }
         if self.sort_desc {
             v.reverse();
         }
-        v
     }
 
     pub fn flash(&mut self, msg: impl Into<String>) {
@@ -216,6 +233,11 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        self.handle_key(key);
+        self.sort_procs();
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.quit = true;
             return;

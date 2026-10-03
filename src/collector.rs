@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use sysinfo::{Components, Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
+use sysinfo::{Component, Components, Disk, DiskRefreshKind, Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, Users};
 
 use crate::fans::{Fan, FanReader};
 
@@ -130,6 +130,22 @@ fn temp_group(label: &str) -> Option<&'static str> {
     }
 }
 
+/// A sensor's group and reading, if it is one we display. Sensors that fail
+/// this are skipped between rescans.
+fn usable_temp(c: &Component) -> Option<(&'static str, f64)> {
+    let t = c.temperature()? as f64;
+    if !(-20.0..=150.0).contains(&t) || t == 0.0 {
+        return None;
+    }
+    Some((temp_group(c.label())?, t))
+}
+
+/// Whether a disk appears in the mounts list.
+fn shown_mount(d: &Disk) -> bool {
+    let mount = d.mount_point();
+    !(mount.starts_with("/System/Volumes/") || mount.starts_with("/private/var") || d.is_read_only() || d.total_space() == 0)
+}
+
 const TEMP_ORDER: &[&str] = &["CPU", "GPU", "SSD", "Board", "Battery", "WiFi", "Other"];
 
 fn run(tx: Sender<Snapshot>, interval: Duration) {
@@ -155,10 +171,26 @@ fn run(tx: Sender<Snapshot>, interval: Duration) {
         sys.refresh_memory();
         sys.refresh_processes_specifics(ProcessesToUpdate::All, true, proc_kind);
         networks.refresh(true);
-        // Re-scan the disk list occasionally to pick up new mounts; just refresh
-        // counters the rest of the time.
-        disks.refresh(tick.is_multiple_of(30));
-        components.refresh(false);
+        // Re-scan disks and sensors occasionally to pick up new mounts and
+        // devices. Listing is expensive on macOS (it re-enumerates volumes and
+        // IOHID services), so the rest of the time we only refresh what we show.
+        let rescan = tick.is_multiple_of(30);
+        if rescan {
+            disks.refresh(true);
+            components.refresh(false);
+        } else {
+            for d in disks.list_mut() {
+                // Free space is costly (APFS purgeable lookups); only query it
+                // for mounts we display.
+                let kind = DiskRefreshKind::nothing().with_io_usage();
+                d.refresh_specifics(if shown_mount(d) { kind.with_storage() } else { kind });
+            }
+            for c in components.list_mut() {
+                if usable_temp(c).is_some() {
+                    c.refresh();
+                }
+            }
+        }
         tick += 1;
 
         let cpu_cores: Vec<f64> = sys.cpus().iter().map(|c| c.cpu_usage() as f64).collect();
@@ -193,18 +225,13 @@ fn run(tx: Sender<Snapshot>, interval: Duration) {
                 rd += u.read_bytes;
                 wr += u.written_bytes;
             }
-            let mount = d.mount_point().to_string_lossy().to_string();
-            if mount.starts_with("/System/Volumes/")
-                || mount.starts_with("/private/var")
-                || d.is_read_only()
-                || d.total_space() == 0
-            {
+            if !shown_mount(d) {
                 continue;
             }
             if seen_space.insert((d.total_space(), d.available_space())) {
                 mounts.push(Mount {
                     name: d.name().to_string_lossy().to_string(),
-                    mount,
+                    mount: d.mount_point().to_string_lossy().to_string(),
                     used: d.total_space().saturating_sub(d.available_space()),
                     total: d.total_space(),
                 });
@@ -213,11 +240,7 @@ fn run(tx: Sender<Snapshot>, interval: Duration) {
 
         let mut groups: Vec<(&'static str, f64)> = Vec::new();
         for c in components.list() {
-            let Some(t) = c.temperature().map(|t| t as f64) else { continue };
-            if !(-20.0..=150.0).contains(&t) || t == 0.0 {
-                continue;
-            }
-            let Some(g) = temp_group(c.label()) else { continue };
+            let Some((g, t)) = usable_temp(c) else { continue };
             // The hottest sensor in a group is the one worth watching.
             match groups.iter_mut().find(|(n, _)| *n == g) {
                 Some(e) => e.1 = e.1.max(t),

@@ -86,7 +86,11 @@ fn main() -> Result<()> {
     }
     let snapshots = collector::spawn(args.interval);
 
-    let mut terminal = ratatui::init();
+    // A fixed viewport that we resize on resize events. The default fullscreen
+    // viewport re-queries the terminal size (opening /dev/tty) on every frame.
+    let (w, h) = crossterm::terminal::size()?;
+    let viewport = ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, w, h));
+    let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions { viewport });
     let result = run(&mut terminal, &mut app, &snapshots, args.fps);
     ratatui::restore();
     result
@@ -124,10 +128,10 @@ fn run(
             if !event::poll(timeout)? {
                 break;
             }
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => app.on_key(key),
+                Event::Resize(w, h) => terminal.resize(ratatui::layout::Rect::new(0, 0, w, h))?,
+                _ => {}
             }
         }
     }
