@@ -7,13 +7,37 @@ machine's fans drawn as spinning blue case fans driven by their real RPM.
 Visual style borrows from [superseedr](https://github.com/Jagalite/superseedr):
 Catppuccin colors, braille charts, a twinkling starfield and a keybind footer.
 
-## Run
+## Install
+
+Prebuilt binaries for macOS and Linux (x86_64 and arm64):
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jshiv/supertop/releases/latest/download/supertop-installer.sh | sh
+```
+
+Or download an archive from the [releases page](https://github.com/jshiv/supertop/releases).
+
+## Run from source
 
 ```sh
 cargo run --release
 # or install it
 cargo install --path . && supertop
 ```
+
+## Releasing
+
+Releases are built by [cargo-dist](https://opensource.axo.dev/cargo-dist/). Bump
+`version` in `Cargo.toml`, then push a matching tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The `Release` workflow builds every target and publishes a GitHub Release with
+the archives and the installer script.
+
+## Options
 
 ```
 --interval <ms>   sampling interval in milliseconds (default 1000)

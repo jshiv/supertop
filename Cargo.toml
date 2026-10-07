@@ -3,6 +3,7 @@ name = "supertop"
 version = "0.1.0"
 edition = "2021"
 description = "A gorgeous terminal system monitor: CPU, memory, disk, network, temperature and spinning fans"
+repository = "https://github.com/jshiv/supertop"
 
 [dependencies]
 anyhow = "1"
@@ -16,3 +17,8 @@ libc = "0.2"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
