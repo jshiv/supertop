@@ -7,6 +7,9 @@ machine's fans drawn as spinning blue case fans driven by their real RPM.
 Visual style borrows from [superseedr](https://github.com/Jagalite/superseedr):
 Catppuccin colors, braille charts, a twinkling starfield and a keybind footer.
 
+<img width="1461" height="791" alt="image" src="https://github.com/user-attachments/assets/655bf78c-d991-4a08-be4b-d132f71a49c1" />
+
+
 ## Install
 
 Prebuilt binaries for macOS and Linux (x86_64 and arm64):
